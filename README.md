@@ -1,5 +1,5 @@
 # BuildExecutable
-[![Build Status](https://travis-ci.org/dhoegh/BuildExecutable.jl.svg?branch=master)](https://travis-ci.org/dhoegh/BuildExecutable.jl)
+[![Build Status](https://travis-ci.org/Gilga/BuildExecutable.jl.svg?branch=master)](https://travis-ci.org/Gilga/BuildExecutable.jl)
 [![Build status](https://ci.appveyor.com/api/projects/status/fr017d9u7y8w29k3?svg=true)](https://ci.appveyor.com/project/dhoegh/buildexecutable-jl)
 
 Builds an executable that doesn't require any julia source code.
