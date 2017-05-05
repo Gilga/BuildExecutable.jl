@@ -41,19 +41,17 @@ type SysFile
     buildpath
     buildfile
 	inference
-    inference0
 end
 
 function SysFile(exename, debug=false)
     buildpath = abspath(dirname(Libdl.dlpath(debug ? "libjulia-debug" : "libjulia")))
     buildfile = joinpath(buildpath, "lib"*exename)
     inference = joinpath(buildpath, "inference")
-    inference0 = joinpath(buildpath, "inference0")
-    SysFile(buildpath, buildfile, inference, inference0)
+	SysFile(buildpath, buildfile, inference)
 end
 
 function build_executable(exename, script_file, targetdir=nothing, cpu_target="native";
-                          force=false, debug=false)
+                          force=false, copyshared=false, debug=false)
     julia = abspath(joinpath(JULIA_HOME, debug ? "julia-debug" : "julia"))
     if !isfile(julia * (is_windows() ? ".exe" : ""))
         println("ERROR: file '$(julia)' not found.")
@@ -61,7 +59,7 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
     end
     build_sysimg = abspath(dirname(@__FILE__), "build_sysimg.jl")
 	if !isfile(build_sysimg)
-		build_sysimg = abspath(JULIA_HOME, "..", "..", "contrib", "build_sysimg.jl")
+		build_sysimg = abspath(JULIA_HOME, "..", "share", "julia", "contrib", "build_sysimg.jl")
 		if !isfile(build_sysimg)
 			println("ERROR: build_sysimg.jl not found.")
 			return 1
@@ -130,21 +128,20 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
             push!(incs, "-I"*abspath(joinpath(dirname(gcc),"..","include")))
         end
     end
-
+	
     empty_cmd_str = ``
     println("running: $(julia) $(build_sysimg) $(sys.buildfile) $(cpu_target) $(userimgjl) --force" * (debug ? " --debug" : ""))
     cmd = setenv(`$(julia) $(build_sysimg) $(sys.buildfile) $(cpu_target) $(userimgjl) --force $(debug ? "--debug" : empty_cmd_str)`, ENV2)
-    run(cmd)
+	run(cmd)
     println()
-
 
     println("running: $gcc -g $win_arg $(join(incs, " ")) $(cfile) -o $(exe_file.buildfile) -Wl,-rpath,$(sys.buildpath) -L$(sys.buildpath) $(exe_file.libjulia) -l$(exename)")
     cmd = setenv(`$gcc -g $win_arg $(incs) $(cfile) -o $(exe_file.buildfile) -Wl,-rpath,$(sys.buildpath) -Wl,-rpath,$(sys.buildpath*"/julia") -L$(sys.buildpath) $(exe_file.libjulia) -l$(exename)`, ENV2)
     run(cmd)
     println()
 
-    println("running: rm -rf $(tmpdir) $(sys.buildfile).o $(sys.inference).o $(sys.inference).ji $(sys.inference0).o $(sys.inference0).ji")
-    map(f-> rm(f, recursive=true), [tmpdir, sys.buildfile*".o", sys.inference*".o", sys.inference*".ji", sys.inference0*".o", sys.inference0*".ji"])
+	println("running: rm -rf $(tmpdir) $(sys.buildfile).o $(sys.inference).o $(sys.inference).ji")
+    map(f-> rm(f, recursive=true), [tmpdir, sys.buildfile*".o", sys.inference*".o", sys.inference*".ji"])
     println()
 
     if targetdir != nothing
@@ -157,12 +154,15 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
         tmp = ".*\.$(Libdl.dlext).*"
         paths = [sys.buildpath]
         VERSION>v"0.5.0-dev+5537" && is_unix() && push!(paths, sys.buildpath*"/julia")
-        for path in paths
-            shlibs = filter(Regex(tmp),readdir(path))
-            for shlib in shlibs
-                cp(joinpath(path, shlib), joinpath(targetdir, shlib), remove_destination=force)
-            end
-        end
+		
+		if copyshared
+			for path in paths
+				shlibs = filter(Regex(tmp),readdir(path))
+				for shlib in shlibs
+					cp(joinpath(path, shlib), joinpath(targetdir, shlib), remove_destination=force)
+				end
+			end
+		end
 
         @static if is_unix()
             # Fix rpath in executable and shared libraries
