@@ -1,3 +1,5 @@
+include("./BuildExecutable.jl")
+
 using BuildExecutable
 
 if !isinteractive()

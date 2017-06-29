@@ -38,16 +38,16 @@ function Executable(exename, targetdir, debug)
 end
 
 type SysFile
-    buildpath
-    buildfile
-	inference
+		buildpath
+		buildfile
+		inference
 end
 
 function SysFile(exename, debug=false)
     buildpath = abspath(dirname(Libdl.dlpath(debug ? "libjulia-debug" : "libjulia")))
     buildfile = joinpath(buildpath, "lib"*exename)
     inference = joinpath(buildpath, "inference")
-	SysFile(buildpath, buildfile, inference)
+		SysFile(buildpath, buildfile, inference)
 end
 
 function build_executable(exename, script_file, targetdir=nothing, cpu_target="native";
@@ -59,7 +59,7 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
     end
     build_sysimg = abspath(dirname(@__FILE__), "build_sysimg.jl")
 	if !isfile(build_sysimg)
-		build_sysimg = abspath(JULIA_HOME, "..", "share", "julia", "contrib", "build_sysimg.jl")
+		build_sysimg = abspath(JULIA_HOME, "..", "share", "julia", "contrib", "build_sysimg.jl") 
 		if !isfile(build_sysimg)
 			println("ERROR: build_sysimg.jl not found.")
 			return 1
@@ -129,22 +129,26 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
         end
     end
 	
-    empty_cmd_str = ``
-    println("running: $(julia) $(build_sysimg) $(sys.buildfile) $(cpu_target) $(userimgjl) --force" * (debug ? " --debug" : ""))
-    cmd = setenv(`$(julia) $(build_sysimg) $(sys.buildfile) $(cpu_target) $(userimgjl) --force $(debug ? "--debug" : empty_cmd_str)`, ENV2)
-	run(cmd)
-    println()
+			# libs
+			empty_cmd_str = ``
+			println("running: $(julia) $(build_sysimg) $(sys.buildfile) $(cpu_target) $(userimgjl) --force" * (debug ? " --debug" : ""))
+			cmd = setenv(`$(julia) $(build_sysimg) $(sys.buildfile) $(cpu_target) $(userimgjl) --force $(debug ? "--debug" : empty_cmd_str)`, ENV2)
+			run(cmd)
+			println()
 
-    println("running: $gcc -g $win_arg $(join(incs, " ")) $(cfile) -o $(exe_file.buildfile) -Wl,-rpath,$(sys.buildpath) -L$(sys.buildpath) $(exe_file.libjulia) -l$(exename)")
-    cmd = setenv(`$gcc -g $win_arg $(incs) $(cfile) -o $(exe_file.buildfile) -Wl,-rpath,$(sys.buildpath) -Wl,-rpath,$(sys.buildpath*"/julia") -L$(sys.buildpath) $(exe_file.libjulia) -l$(exename)`, ENV2)
-    run(cmd)
-    println()
+			# main
+			println("running: $gcc -g $win_arg $(join(incs, " ")) $(cfile) -o $(exe_file.buildfile) -Wl,-rpath,$(sys.buildpath) -L$(sys.buildpath) $(exe_file.libjulia) -l$(exename)")
+			cmd = setenv(`$gcc -g $win_arg $(incs) $(cfile) -o $(exe_file.buildfile) -Wl,-rpath,$(sys.buildpath) -Wl,-rpath,$(sys.buildpath*"/julia") -L$(sys.buildpath) $(exe_file.libjulia) -l$(exename)`, ENV2)
+			run(cmd)
+			println()
 
-	println("running: rm -rf $(tmpdir) $(sys.buildfile).o $(sys.inference).o $(sys.inference).ji")
-    map(f-> rm(f, recursive=true), [tmpdir, sys.buildfile*".o", sys.inference*".o", sys.inference*".ji"])
-    println()
-
+			println("running: rm -rf $(tmpdir) $(sys.buildfile).o $(sys.inference).o $(sys.inference).ji")
+			map(f-> rm(f, recursive=true), [tmpdir, sys.buildfile*".o", sys.inference*".o", sys.inference*".ji"])
+			println()
+		
     if targetdir != nothing
+				println("Move files (Copy Shared Libs)...")
+				
         # Move created files to target directory
         for file in [exe_file.buildfile, sys.buildfile * ".$(Libdl.dlext)", sys.buildfile * ".ji"]
             mv(file, joinpath(targetdir, basename(file)), remove_destination=force)
@@ -155,14 +159,14 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
         paths = [sys.buildpath]
         VERSION>v"0.5.0-dev+5537" && is_unix() && push!(paths, sys.buildpath*"/julia")
 		
-		if copyshared
-			for path in paths
-				shlibs = filter(Regex(tmp),readdir(path))
-				for shlib in shlibs
-					cp(joinpath(path, shlib), joinpath(targetdir, shlib), remove_destination=force)
+				if copyshared
+					for path in paths
+						shlibs = filter(Regex(tmp),readdir(path))
+						for shlib in shlibs
+							cp(joinpath(path, shlib), joinpath(targetdir, shlib), remove_destination=force)
+						end
+					end
 				end
-			end
-		end
 
         @static if is_unix()
             # Fix rpath in executable and shared libraries
@@ -244,8 +248,45 @@ function emit_cmain(cfile, exename, relocation)
         str = "jl_utf8_string_type"
     end
     ext = (VERSION < v"0.5" &&  is_windows()) ? "ji" : Libdl.dlext
-    f = open(cfile, "w")
-    write( f, """
+
+		# works in 0.5.1
+    exampleCode = """
+		#include <julia.h>
+		#include <stdio.h>
+
+		JULIA_DEFINE_FAST_TLS(); // only define this once, in an executable
+		
+		void failed_warning(void) {
+				if (jl_base_module == NULL) { // image not loaded!
+						char *julia_home = getenv("JULIA_HOME");
+						if (julia_home) {
+								fprintf(stderr,
+												"\\nJulia init failed, "
+												"a possible reason is you set an envrionment variable named 'JULIA_HOME', "
+												"please unset it and retry.\\n");
+						}
+				}
+		}
+
+		int main()
+		{
+			char sysji[] = "$(sysji).$ext";
+		  char *sysji_env = getenv("JULIA_SYSIMAGE");
+			
+			printf("My Example\\n");
+			
+      assert(atexit(&failed_warning) == 0);
+				
+      jl_init_with_image(NULL, sysji_env == NULL ? sysji : sysji_env);
+						
+			jl_eval_string("println(24)");
+			int ret = 0;
+			jl_atexit_hook(ret);
+			return ret;
+		}
+	  """
+		
+    mainCode = """
         #include <julia.h>
         #include <stdlib.h>
         #include <stdio.h>
@@ -254,6 +295,8 @@ function emit_cmain(cfile, exename, relocation)
         #if defined(_WIN32) || defined(_WIN64)
         #include <malloc.h>
         #endif
+				
+				JULIA_DEFINE_FAST_TLS(); // only define this once, in an executable
 
         void failed_warning(void) {
             if (jl_base_module == NULL) { // image not loaded!
@@ -274,7 +317,7 @@ function emit_cmain(cfile, exename, relocation)
             char mainfunc[] = "main()";
 
             assert(atexit(&failed_warning) == 0);
-
+				
             jl_init_with_image(NULL, sysji_env == NULL ? sysji : sysji_env);
 
             // set Base.ARGS, not Core.ARGS
@@ -293,14 +336,15 @@ function emit_cmain(cfile, exename, relocation)
                     jl_arrayset(args, s, i - 1);
                 }
             }
-
-            // call main
+						
+						// call main
             jl_eval_string(mainfunc);
 
             int ret = 0;
             if (jl_exception_occurred())
             {
-                jl_show(jl_stderr_obj(), jl_exception_occurred());
+                //jl_show(jl_stderr_obj(), jl_exception_occurred());
+								jl_call2(jl_get_function(jl_base_module, "show"), jl_stderr_obj(), jl_exception_occurred());
                 jl_printf(jl_stderr_stream(), "\\n");
                 ret = 1;
             }
@@ -309,7 +353,9 @@ function emit_cmain(cfile, exename, relocation)
             return ret;
         }
         """
-    )
+				
+		f = open(cfile, "w")
+    write( f, mainCode)
     close(f)
 end
 
