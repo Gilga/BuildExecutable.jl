@@ -1,4 +1,4 @@
-# BuildExecutable
+# BuildExecutable (only working for julia 0.5.1)
 [![Build Status](https://travis-ci.org/Gilga/BuildExecutable.jl.svg?branch=master)](https://travis-ci.org/Gilga/BuildExecutable.jl)
 [![Build status](https://ci.appveyor.com/api/projects/status/r9659tnllk7a8o83?svg=true)](https://ci.appveyor.com/project/Gilga/buildexecutable-jl)
 
