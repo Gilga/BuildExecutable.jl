@@ -142,15 +142,15 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
 			run(cmd)
 			println()
 
-			println("running: rm -rf $(tmpdir) $(sys.buildfile).o $(sys.inference).o $(sys.inference).ji")
-			map(f-> rm(f, recursive=true), [tmpdir, sys.buildfile*".o", sys.inference*".o", sys.inference*".ji"])
+			println("running: rm -rf $(tmpdir)") # $(sys.buildfile).o $(sys.inference).o $(sys.inference).ji")
+			map(f-> rm(f, recursive=true), [tmpdir]) #, sys.buildfile*".o", sys.inference*".o", sys.inference*".ji"])
 			println()
 		
     if targetdir != nothing
 				println("Move files (Copy Shared Libs)...")
 				
         # Move created files to target directory
-        for file in [exe_file.buildfile, sys.buildfile * ".$(Libdl.dlext)", sys.buildfile * ".ji"]
+        for file in [exe_file.buildfile, sys.buildfile * ".$(Libdl.dlext)", sys.buildfile * ".o", sys.buildfile * ".ji"]
             mv(file, joinpath(targetdir, basename(file)), remove_destination=force)
         end
 
