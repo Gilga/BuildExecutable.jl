@@ -142,12 +142,19 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
 		# build ressource file
 		rcfile=string(joinpath(exe_file.buildpath, exe_file.name), ".rc")
 		rcbuilfile=string(rcfile, ".o")
-		
-		if !isfile(rcbuilfile) || !isfile(rcfile)
+		iconname=string(exe_file.name, ".ico")
+		iconfile=joinpath(exe_file.buildpath, iconname)
+
+		if !isfile(rcbuilfile) || !isfile(rcfile) || !isfile(iconfile)
 			println("[ Build Ressource ]")
 			if !isfile(rcfile)
 				println("create $(rcfile)")
-				emit_rc(rcfile, exe_file.filename, string(exe_file.name, ".ico"))
+				emit_rc(rcfile, exe_file.filename, iconname)
+				if !isfile(iconfile)
+					icon = joinpath(abspath(dirname(@__FILE__), "..", "icons"), "julia.ico")
+					println("Copy icon file: $(icon) -> $(iconfile)")
+					cp(icon, iconfile, remove_destination=false)
+				end
 				println()
 			end
 			println("running: $rc  -i $(rcfile) -o $(rcbuilfile)")
