@@ -17,41 +17,42 @@ using Compat
 type Executable
     name
     filename
+		buildpath
     buildfile
-    targetfile
     libjulia
-end
+		debug
+		
+		function Executable(exename, targetdir, debug=false)
+				if debug
+						exename = exename * "-debug"
+				end
+				filename = exename
+				@static if is_windows()
+						filename = filename * ".exe"
+				end
+				buildfile = abspath(joinpath(targetdir == nothing ? JULIA_HOME : targetdir, filename))
+				libjulia = debug ? "-ljulia-debug" : "-ljulia"
 
-function Executable(exename, targetdir, debug)
-    if debug
-        exename = exename * "-debug"
-    end
-    filename = exename
-    @static if is_windows()
-        filename = filename * ".exe"
-    end
-    buildfile = abspath(joinpath(JULIA_HOME, filename))
-    targetfile = targetdir == nothing ? buildfile : joinpath(targetdir, filename)
-    libjulia = debug ? "-ljulia-debug" : "-ljulia"
-
-    Executable(exename, filename, buildfile, targetfile, libjulia)
+				new(exename, filename, targetdir, buildfile, libjulia, debug)
+		end
 end
 
 type SysFile
 		buildpath
 		buildfile
 		inference
+		
+		function SysFile(exe_file)
+				buildpath = abspath(dirname(Libdl.dlpath(exe_file.debug ? "libjulia-debug" : "libjulia")))
+				buildfile = abspath(exe_file.buildpath, "lib"*exe_file.name) #joinpath(buildpath, "lib"*exe_file.name)
+				inference = joinpath(buildpath, "inference")
+				new(buildpath, buildfile, inference)
+		end
 end
 
-function SysFile(exename, debug=false)
-    buildpath = abspath(dirname(Libdl.dlpath(debug ? "libjulia-debug" : "libjulia")))
-    buildfile = joinpath(buildpath, "lib"*exename)
-    inference = joinpath(buildpath, "inference")
-		SysFile(buildpath, buildfile, inference)
-end
 
 function build_executable(exename, script_file, targetdir=nothing, cpu_target="native";
-                          force=false, copyshared=false, debug=false)
+                          force=false, debug=false)
     julia = abspath(joinpath(JULIA_HOME, debug ? "julia-debug" : "julia"))
     if !isfile(julia * (is_windows() ? ".exe" : ""))
         println("ERROR: file '$(julia)' not found.")
@@ -80,7 +81,6 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
     end
 
     tmpdir = mktempdir()
-    cfile = joinpath(tmpdir, "start_func.c")
     userimgjl = joinpath(tmpdir, "userimg.jl")
     script_file = abspath(script_file)
 
@@ -93,10 +93,10 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
     end
 
     exe_file = Executable(exename, targetdir, debug)
-    sys = SysFile(exename, debug)
-
+    sys = SysFile(exe_file)
+		
     if !force
-        for f in [cfile, userimgjl, "$(sys.buildfile).$(Libdl.dlext)", "$(sys.buildfile).ji", exe_file.buildfile]
+        for f in [userimgjl, "$(sys.buildfile).$(Libdl.dlext)", "$(sys.buildfile).ji", exe_file.buildfile] #cfile, 
             if isfile(f)
                 println("ERROR: File '$(f)' already exists. Delete it or use --force.")
                 return 1
@@ -109,10 +109,9 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
         end
     end
 
-    emit_cmain(cfile, exename, targetdir != nothing)
-    emit_userimgjl(userimgjl, script_file)
-
     gcc = find_system_gcc()
+		rc = find_system_rc()
+		
     win_arg = ``
     # This argument is needed for the gcc, see issue #9973
     @static if is_windows()
@@ -128,44 +127,85 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
             push!(incs, "-I"*abspath(joinpath(dirname(gcc),"..","include")))
         end
     end
-	
-			# libs
+		
+		# libs
+		if !isfile(string(sys.buildfile, ".o"))
+			println("[ Build Library ]")
+			emit_userimgjl(userimgjl, script_file)
 			empty_cmd_str = ``
 			println("running: $(julia) $(build_sysimg) $(sys.buildfile) $(cpu_target) $(userimgjl) --force" * (debug ? " --debug" : ""))
 			cmd = setenv(`$(julia) $(build_sysimg) $(sys.buildfile) $(cpu_target) $(userimgjl) --force $(debug ? "--debug" : empty_cmd_str)`, ENV2)
 			run(cmd)
 			println()
+		end
 
-			# main
-			println("running: $gcc -g $win_arg $(join(incs, " ")) $(cfile) -o $(exe_file.buildfile) -Wl,-rpath,$(sys.buildpath) -L$(sys.buildpath) $(exe_file.libjulia) -l$(exename)")
-			cmd = setenv(`$gcc -g $win_arg $(incs) $(cfile) -o $(exe_file.buildfile) -Wl,-rpath,$(sys.buildpath) -Wl,-rpath,$(sys.buildpath*"/julia") -L$(sys.buildpath) $(exe_file.libjulia) -l$(exename)`, ENV2)
+		# build ressource file
+		rcfile=string(joinpath(exe_file.buildpath, exe_file.name), ".rc")
+		rcbuilfile=string(rcfile, ".o")
+		
+		if !isfile(rcbuilfile) || !isfile(rcfile)
+			println("[ Build Ressource ]")
+			if !isfile(rcfile)
+				println("create $(rcfile)")
+				emit_rc(rcfile, exe_file.filename, string(exe_file.name, ".ico"))
+				println()
+			end
+			println("running: $rc  -i $(rcfile) -o $(rcbuilfile)")
+			cmd = setenv(`$rc -i $(rcfile) -o $(rcbuilfile)`, ENV2)
 			run(cmd)
 			println()
-
-			println("running: rm -rf $(tmpdir)") # $(sys.buildfile).o $(sys.inference).o $(sys.inference).ji")
-			map(f-> rm(f, recursive=true), [tmpdir]) #, sys.buildfile*".o", sys.inference*".o", sys.inference*".ji"])
+		end
+				
+		# main
+		cfile = joinpath(exe_file.buildpath, "main.c")
+					
+		if !isfile(cfile) || !isfile(exe_file.buildfile)
+			println("[ Build Executable ]")
+			if !isfile(cfile)
+				println("create $(cfile)")
+				emit_cmain(cfile, exename, targetdir != nothing)
+				println()
+			end
+			println("running: $gcc -g $win_arg $(join(incs, " ")) $(cfile) -o $(exe_file.buildfile) $(rcbuilfile) -Wl,-rpath,$(exe_file.buildpath) -L$(exe_file.buildpath) $(exe_file.libjulia) -l$(exename)")
+			cmd = setenv(`$gcc -g $win_arg $(incs) $(cfile) -o $(exe_file.buildfile) $(rcbuilfile) -Wl,-rpath,$(exe_file.buildpath) -Wl,-rpath,$(exe_file.buildpath*"/julia") -L$(exe_file.buildpath) $(exe_file.libjulia) -l$(exename)`, ENV2)
+			run(cmd)
 			println()
+		end
+
+		println("running: rm -rf $(tmpdir)") # $(sys.buildfile).o $(sys.inference).o $(sys.inference).ji")
+		map(f-> rm(f, recursive=true), [tmpdir]) #, sys.buildfile*".o", sys.inference*".o", sys.inference*".ji"])
+		println()
 		
     if targetdir != nothing
-				println("Move files (Copy Shared Libs)...")
-				
+				# deleted: not used anymore (build dir = target dir)
         # Move created files to target directory
-        for file in [exe_file.buildfile, sys.buildfile * ".$(Libdl.dlext)", sys.buildfile * ".o", sys.buildfile * ".ji"]
-            mv(file, joinpath(targetdir, basename(file)), remove_destination=force)
-        end
+        #for file in [exe_file.buildfile, sys.buildfile * ".$(Libdl.dlext)", sys.buildfile * ".o", sys.buildfile * ".ji"]
+        #    mv(file, joinpath(targetdir, basename(file)), remove_destination=force)
+        #end
 
         # Copy needed shared libraries to the target directory
         tmp = ".*\.$(Libdl.dlext).*"
         paths = [sys.buildpath]
         VERSION>v"0.5.0-dev+5537" && is_unix() && push!(paths, sys.buildpath*"/julia")
 		
-				if copyshared
-					for path in paths
-						shlibs = filter(Regex(tmp),readdir(path))
-						for shlib in shlibs
-							cp(joinpath(path, shlib), joinpath(targetdir, shlib), remove_destination=force)
+				once = true
+				for path in paths
+					shlibs = filter(Regex(tmp),readdir(path))
+					for shlib in shlibs
+						targetfile = joinpath(targetdir, shlib)
+						if !isfile(targetfile)
+							if once
+								println("[ Copy Shared Libs ]")
+								once=false
+							end
+							lib = joinpath(path, shlib)
+							println("$(lib) -> $(targetfile)")
+							cp(lib, targetfile, remove_destination=force)
 						end
 					end
+				end
+				if !once
+					println()
 				end
 
         @static if is_unix()
@@ -199,7 +239,7 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
         end
     end
 
-    println("$(exe_file.targetfile) successfully created.")
+    println("Build Sucessful.")
     return 0
 end
 
@@ -231,6 +271,53 @@ function get_includes()
     push!(ret, "-I$(julia_root)usr/include")
 
     ret
+end
+
+function emit_rc(file, exename, iconname, productversion="1.0.0.0", fileversion="1.0.0.0")
+    code = """
+		1 VERSIONINFO
+		FILEVERSION     $(replace(fileversion, ".", ","))
+		PRODUCTVERSION  $(replace(productversion, ".", ","))
+		FILEFLAGSMASK  	0x3fL
+		#ifdef _DEBUG
+		FILEFLAGS		0x9L
+		#else
+		FILEFLAGS		0x8L
+		#endif
+		FILEOS			0x40004L
+		FILETYPE		0x2L
+		FILESUBTYPE	0x0L
+		BEGIN
+			BLOCK "StringFileInfo"
+			BEGIN
+				BLOCK "040904E4"
+				BEGIN
+					VALUE "Comments", "\\0"
+					VALUE "CompanyName", "\\0"
+					VALUE "FileDescription", "\\0"
+					VALUE "FileVersion", "$(productversion)\\0"
+					VALUE "InternalName", "\\0"
+					VALUE "LegalCopyright", "\\0"
+					VALUE "LegalTrademarks", "\\0"
+					VALUE "OriginalFilename", "$(exename)\\0"
+					VALUE "PrivateBuild", "\\0"
+					VALUE "ProductName", "\\0"
+					VALUE "ProductVersion", "$(fileversion)\\0"
+					VALUE "SpecialBuild", "\\0"
+				END
+			END
+			BLOCK "VarFileInfo"
+			BEGIN
+				// US English, Unicode
+				VALUE "Translation", 0x409, 1200
+			END
+		END
+		2 ICON "$(iconname)"
+		//1 RT_MANIFEST "app-manifest.xml"
+		"""
+		f = open(file, "w")
+    write(f, code)
+    close(f)
 end
 
 function emit_cmain(cfile, exename, relocation)
@@ -287,72 +374,85 @@ function emit_cmain(cfile, exename, relocation)
 	  """
 		
     mainCode = """
-        #include <julia.h>
-        #include <stdlib.h>
-        #include <stdio.h>
-        #include <assert.h>
-        #include <string.h>
-        #if defined(_WIN32) || defined(_WIN64)
-        #include <malloc.h>
-        #endif
+		#include <julia.h>
+		#include <stdlib.h>
+		#include <stdio.h>
+		#include <assert.h>
+		#include <string.h>
+		#if defined(_WIN32) || defined(_WIN64)
+		#include <malloc.h>
+		#endif
+		
+		JULIA_DEFINE_FAST_TLS(); // only define this once, in an executable
+
+		void failed_warning(void) {
+				if (jl_base_module == NULL) { // image not loaded!
+						char *julia_home = getenv("JULIA_HOME");
+						if (julia_home) {
+								fprintf(stderr,
+												"\\nJulia init failed, "
+												"a possible reason is you set an envrionment variable named 'JULIA_HOME', "
+												"please unset it and retry.\\n");
+						}
+				}
+		}
+
+		int main(int argc, char *argv[])
+		{
+				char * arg;
+				char *token;
+				char *split=":";
 				
-				JULIA_DEFINE_FAST_TLS(); // only define this once, in an executable
-
-        void failed_warning(void) {
-            if (jl_base_module == NULL) { // image not loaded!
-                char *julia_home = getenv("JULIA_HOME");
-                if (julia_home) {
-                    fprintf(stderr,
-                            "\\nJulia init failed, "
-                            "a possible reason is you set an envrionment variable named 'JULIA_HOME', "
-                            "please unset it and retry.\\n");
-                }
-            }
-        }
-
-        int main(int argc, char *argv[])
-        {
-            char sysji[] = "$(sysji).$ext";
-            char *sysji_env = getenv("JULIA_SYSIMAGE");
-            char mainfunc[] = "main()";
-
-            assert(atexit(&failed_warning) == 0);
+				for (int i = 1; i < argc; i++) {
+						arg = argv[i];
+						token = strtok(arg, split);
+						if(strcmp ("env",token) == 0){
+								token = strtok(NULL, split);
+								if(token!=0) { putenv (token); }
+						}
+				}
 				
-            jl_init_with_image(NULL, sysji_env == NULL ? sysji : sysji_env);
+				char sysji[] = "$(sysji).$ext";
+				char *sysji_env = getenv("JULIA_SYSIMAGE");
+				char mainfunc[] = "main()";
 
-            // set Base.ARGS, not Core.ARGS
-            if (jl_base_module != NULL) {
-                jl_array_t *args = (jl_array_t*)jl_get_global(jl_base_module, jl_symbol("ARGS"));
-                if (args == NULL) {
-                    args = $arr(0);
-                    jl_set_const(jl_base_module, jl_symbol("ARGS"), (jl_value_t*)args);
-                }
-                assert(jl_array_len(args) == 0);
-                jl_array_grow_end(args, argc - 1);
-                int i;
-                for (i=1; i < argc; i++) {
-                    jl_value_t *s = (jl_value_t*)jl_cstr_to_string(argv[i]);
-                    jl_set_typeof(s,$str);
-                    jl_arrayset(args, s, i - 1);
-                }
-            }
-						
-						// call main
-            jl_eval_string(mainfunc);
+				assert(atexit(&failed_warning) == 0);
+		
+				jl_init_with_image(NULL, sysji_env == NULL ? sysji : sysji_env);
 
-            int ret = 0;
-            if (jl_exception_occurred())
-            {
-                //jl_show(jl_stderr_obj(), jl_exception_occurred());
-								jl_call2(jl_get_function(jl_base_module, "show"), jl_stderr_obj(), jl_exception_occurred());
-                jl_printf(jl_stderr_stream(), "\\n");
-                ret = 1;
-            }
+				// set Base.ARGS, not Core.ARGS
+				if (jl_base_module != NULL) {
+						jl_array_t *args = (jl_array_t*)jl_get_global(jl_base_module, jl_symbol("ARGS"));
+						if (args == NULL) {
+								args = $arr(0);
+								jl_set_const(jl_base_module, jl_symbol("ARGS"), (jl_value_t*)args);
+						}
+						assert(jl_array_len(args) == 0);
+						jl_array_grow_end(args, argc - 1);
+						int i;
+						for (i=1; i < argc; i++) {
+								jl_value_t *s = (jl_value_t*)jl_cstr_to_string(argv[i]);
+								jl_set_typeof(s,$str);
+								jl_arrayset(args, s, i - 1);
+						}
+				}
+				
+				// call main
+				jl_eval_string(mainfunc);
 
-            jl_atexit_hook(ret);
-            return ret;
-        }
-        """
+				int ret = 0;
+				if (jl_exception_occurred())
+				{
+						//jl_show(jl_stderr_obj(), jl_exception_occurred());
+						jl_call2(jl_get_function(jl_base_module, "show"), jl_stderr_obj(), jl_exception_occurred());
+						jl_printf(jl_stderr_stream(), "\\n");
+						ret = 1;
+				}
+
+				jl_atexit_hook(ret);
+				return ret;
+		}
+		"""
 				
 		f = open(cfile, "w")
     write( f, mainCode)
@@ -365,12 +465,34 @@ function emit_userimgjl(userimgjl, script_file)
     end
 end
 
+function find_system_rc()
+    # On Windows, check to see if WinRPM is installed, and if so, see if windres is installed
+    @static if is_windows()
+        try
+            winrpmrc = joinpath(WinRPM.installdir,"usr","$(Sys.ARCH)-w64-mingw32", "sys-root","mingw","bin","windres.exe")
+            if success(`$winrpmrc --version`)
+                return winrpmrc
+            end
+        end
+    end
+
+    # See if `gcc` exists
+    @static if is_unix()
+        try
+            if success(`rc -v`)
+                return "rc"
+            end
+        end
+    end
+
+    error( "RC not found on system: " * (is_windows() ? "windres can be installed via `Pkg.add(\"WinRPM\"); WinRPM.install(\"gcc\")`" : "" ))
+end
+
 function find_system_gcc()
     # On Windows, check to see if WinRPM is installed, and if so, see if gcc is installed
     @static if is_windows()
         try
-            winrpmgcc = joinpath(WinRPM.installdir,"usr","$(Sys.ARCH)-w64-mingw32",
-                "sys-root","mingw","bin","gcc.exe")
+            winrpmgcc = joinpath(WinRPM.installdir,"usr","$(Sys.ARCH)-w64-mingw32", "sys-root","mingw","bin","gcc.exe")
             if success(`$winrpmgcc --version`)
                 return winrpmgcc
             end
