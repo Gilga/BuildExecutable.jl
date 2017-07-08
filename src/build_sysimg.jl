@@ -30,10 +30,10 @@ function build_sysimg(sysimg_path=nothing, cpu_target="native", userimg_path=not
     end
 
     # Quit out if a sysimg is already loaded and is in the same spot as sysimg_path, unless forcing
-    sysimg = Libdl.dlopen_e("sys")
-    if sysimg != C_NULL
-        if !force && Base.samefile(Libdl.dlpath(sysimg), "$(sysimg_path).$(Libdl.dlext)")
-            info("System image already loaded at $(Libdl.dlpath(sysimg)), set force=true to override.")
+    sysimglib = Libdl.dlopen_e("sys")
+    if sysimglib != C_NULL
+        if !force && Base.samefile(Libdl.dlpath(sysimglib), "$(sysimg_path).$(Libdl.dlext)")
+            info("System image already loaded at $(Libdl.dlpath(sysimglib)), set force=true to override.")
             return nothing
         end
     end
@@ -43,8 +43,13 @@ function build_sysimg(sysimg_path=nothing, cpu_target="native", userimg_path=not
         userimg_path = abspath(userimg_path)
     end
 
+		coreimg = "coreimg.jl"
+		sysimg = "sysimg.jl"
+		libimg= "userimg_tmp.jl"
+		userimg = "userimg_tmp.jl"
+
     # Enter base and setup some useful paths
-    base_dir = dirname(Base.find_source_file("sysimg.jl"))
+    base_dir = dirname(Base.find_source_file(sysimg))
     cd(base_dir) do
         julia = joinpath(JULIA_HOME, debug ? "julia-debug" : "julia")
         cc = find_system_compiler()
@@ -57,42 +62,43 @@ function build_sysimg(sysimg_path=nothing, cpu_target="native", userimg_path=not
             err_msg *= "and is writable; absolute paths work best.)"
             error(err_msg)
         end
-
+				
         # Copy in userimg.jl if it exists
         if userimg_path !== nothing
             if !isfile(userimg_path)
                 error("$userimg_path is not found, ensure it is an absolute path.")
             end
-            if isfile("userimg.jl")
-                error("$base_dir/userimg.jl already exists, delete manually to continue.")
-            end
-            cp(userimg_path, "userimg.jl")
+            #if isfile(userimg)
+	                #error("$base_dir/$userimg already exists, delete manually to continue.")
+            #end
+            cp(userimg_path, userimg, remove_destination=true)
         end
+				
         try
             # paths for standard images
             inference_path = joinpath(dirname(sysimg_path), "inference")
-						baseimg_path = joinpath(dirname(sysimg_path), "base")
-						
+						baseimg_path = joinpath(dirname(sysimg_path), "sys")
+	
 						build_inference = !isfile(string(inference_path,".ji"))
 						
 						# Start by building inference.{ji,o}
 						if build_inference
 							info("Building inference.o")
-							info("$julia -C $cpu_target --output-ji $inference_path.ji --output-o $inference_path.o coreimg.jl")
-							run(`$julia -C $cpu_target --output-ji $inference_path.ji --output-o $inference_path.o coreimg.jl`)
+							info("$julia -C $cpu_target --output-ji $inference_path.ji --output-o $inference_path.o $coreimg")
+							run(`$julia -C $cpu_target --output-ji $inference_path.ji --output-o $inference_path.o $coreimg`)
 						end
 						
-						# Start by building base.{ji,o}
+						# Bootstrap off of that to create sys.{ji,o}
 						if build_inference || !isfile(string(baseimg_path,".ji"))
-							info("Building base.o")
-							info("$julia -C $cpu_target --output-ji $baseimg_path.ji --output-o $baseimg_path.o -J $inference_path.ji --startup-file=no baseimg.jl")
-							run(`$julia -C $cpu_target --output-ji $baseimg_path.ji --output-o $baseimg_path.o -J $inference_path.ji --startup-file=no baseimg.jl`)
+							info("Building sys.o")
+							info("$julia -C $cpu_target --output-ji $baseimg_path.ji --output-o $baseimg_path.o -J $inference_path.ji --startup-file=no $sysimg")
+							run(`$julia -C $cpu_target --output-ji $baseimg_path.ji --output-o $baseimg_path.o -J $inference_path.ji --startup-file=no $sysimg`)
 						end
 	
-						# Bootstrap off of that to create sys.{ji,o}
-						info("Building sys.o")
-						info("$julia -C $cpu_target --output-ji $sysimg_path.ji --output-o $sysimg_path.o -J $inference_path.ji --startup-file=no sysimg.jl")
-						run(`$julia -C $cpu_target --output-ji $sysimg_path.ji --output-o $sysimg_path.o -J $baseimg_path.ji --startup-file=no sysimg.jl`)
+						# Bootstrap off of that to create lib.{ji,o}
+						info("Building lib.o")
+						info("$julia -C $cpu_target --output-ji $sysimg_path.ji --output-o $sysimg_path.o -J $inference_path.ji --startup-file=no $libimg")
+						run(`$julia -C $cpu_target --output-ji $sysimg_path.ji --output-o $sysimg_path.o -J $baseimg_path.ji --startup-file=no $libimg`)
 						
             if cc !== nothing
                 link_sysimg(sysimg_path, cc, debug)
@@ -111,8 +117,8 @@ function build_sysimg(sysimg_path=nothing, cpu_target="native", userimg_path=not
             end
         finally
             # Cleanup userimg.jl
-            if userimg_path !== nothing && isfile("userimg.jl")
-                rm("userimg.jl")
+            if userimg_path !== nothing && isfile(userimg)
+                rm(userimg)
             end
         end
     end

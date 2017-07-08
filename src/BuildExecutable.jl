@@ -81,7 +81,7 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
     end
 
     tmpdir = mktempdir()
-    userimgjl = joinpath(tmpdir, "userimg.jl")
+    userimgjl = joinpath(tmpdir, "userimg_tmp.jl")
     script_file = abspath(script_file)
 
     if targetdir != nothing
@@ -138,50 +138,6 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
 			run(cmd)
 			println()
 		end
-
-		# build ressource file
-		rcfile=string(joinpath(exe_file.buildpath, exe_file.name), ".rc")
-		rcbuilfile=string(rcfile, ".o")
-		iconname=string(exe_file.name, ".ico")
-		iconfile=joinpath(exe_file.buildpath, iconname)
-
-		if !isfile(rcbuilfile) || !isfile(rcfile) || !isfile(iconfile)
-			println("[ Build Ressource ]")
-			if !isfile(rcfile)
-				println("create $(rcfile)")
-				emit_rc(rcfile, exe_file.filename, iconname)
-				if !isfile(iconfile)
-					icon = joinpath(abspath(dirname(@__FILE__), "..", "icons"), "julia.ico")
-					println("Copy icon file: $(icon) -> $(iconfile)")
-					cp(icon, iconfile, remove_destination=false)
-				end
-				println()
-			end
-			println("running: $rc  -i $(rcfile) -o $(rcbuilfile)")
-			cmd = setenv(`$rc -i $(rcfile) -o $(rcbuilfile)`, ENV2)
-			run(cmd)
-			println()
-		end
-				
-		# main
-		cfile = joinpath(exe_file.buildpath, "main.c")
-					
-		if !isfile(cfile) || !isfile(exe_file.buildfile)
-			println("[ Build Executable ]")
-			if !isfile(cfile)
-				println("create $(cfile)")
-				emit_cmain(cfile, exename, targetdir != nothing)
-				println()
-			end
-			println("running: $gcc -g $win_arg $(join(incs, " ")) $(cfile) -o $(exe_file.buildfile) $(rcbuilfile) -Wl,-rpath,$(exe_file.buildpath) -L$(exe_file.buildpath) $(exe_file.libjulia) -l$(exename)")
-			cmd = setenv(`$gcc -g $win_arg $(incs) $(cfile) -o $(exe_file.buildfile) $(rcbuilfile) -Wl,-rpath,$(exe_file.buildpath) -Wl,-rpath,$(exe_file.buildpath*"/julia") -L$(exe_file.buildpath) $(exe_file.libjulia) -l$(exename)`, ENV2)
-			run(cmd)
-			println()
-		end
-
-		println("running: rm -rf $(tmpdir)") # $(sys.buildfile).o $(sys.inference).o $(sys.inference).ji")
-		map(f-> rm(f, recursive=true), [tmpdir]) #, sys.buildfile*".o", sys.inference*".o", sys.inference*".ji"])
-		println()
 		
     if targetdir != nothing
 				# deleted: not used anymore (build dir = target dir)
@@ -246,6 +202,50 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
         end
     end
 
+		# build ressource file
+		rcfile=string(joinpath(exe_file.buildpath, exe_file.name), ".rc")
+		rcbuilfile=string(rcfile, ".o")
+		iconname=string(exe_file.name, ".ico")
+		iconfile=joinpath(exe_file.buildpath, iconname)
+
+		if !isfile(rcbuilfile) || !isfile(rcfile) || !isfile(iconfile)
+			println("[ Build Ressource ]")
+			if !isfile(rcfile)
+				println("create $(rcfile)")
+				emit_rc(rcfile, exe_file.filename, iconname)
+				if !isfile(iconfile)
+					icon = joinpath(abspath(dirname(@__FILE__), "..", "icons"), "julia.ico")
+					println("Copy icon file: $(icon) -> $(iconfile)")
+					cp(icon, iconfile, remove_destination=false)
+				end
+				println()
+			end
+			println("running: $rc  -i $(rcfile) -o $(rcbuilfile)")
+			cmd = setenv(`$rc -i $(rcfile) -o $(rcbuilfile)`, ENV2)
+			run(cmd)
+			println()
+		end
+				
+		# main
+		cfile = joinpath(exe_file.buildpath, "main.c")
+					
+		if !isfile(cfile) || !isfile(exe_file.buildfile)
+			println("[ Build Executable ]")
+			if !isfile(cfile)
+				println("create $(cfile)")
+				emit_cmain(cfile, exename, targetdir != nothing)
+				println()
+			end
+			println("running: $gcc -g $win_arg $(join(incs, " ")) $(cfile) -o $(exe_file.buildfile) $(rcbuilfile) -Wl,-rpath,$(exe_file.buildpath) -L$(exe_file.buildpath) $(exe_file.libjulia) -l$(exename)")
+			cmd = setenv(`$gcc -g $win_arg $(incs) $(cfile) -o $(exe_file.buildfile) $(rcbuilfile) -Wl,-rpath,$(exe_file.buildpath) -Wl,-rpath,$(exe_file.buildpath*"/julia") -L$(exe_file.buildpath) $(exe_file.libjulia) -l$(exename)`, ENV2)
+			run(cmd)
+			println()
+		end
+
+		println("running: rm -rf $(tmpdir)") # $(sys.buildfile).o $(sys.inference).o $(sys.inference).ji")
+		map(f-> rm(f, recursive=true), [tmpdir]) #, sys.buildfile*".o", sys.inference*".o", sys.inference*".ji"])
+		println()		
+		
     println("Build Sucessful.")
     return 0
 end
@@ -322,12 +322,12 @@ function emit_rc(file, exename, iconname, productversion="1.0.0.0", fileversion=
 		2 ICON "$(iconname)"
 		//1 RT_MANIFEST "app-manifest.xml"
 		"""
-		f = open(file, "w")
-    write(f, code)
-    close(f)
+		open(file, "w") do f
+			write( f, code)
+		end
 end
 
-function emit_cmain(cfile, exename, relocation)
+function emit_cmain(file, exename, relocation)
     if relocation
         sysji = joinpath("lib"*exename)
     else
@@ -380,7 +380,7 @@ function emit_cmain(cfile, exename, relocation)
 		}
 	  """
 		
-    mainCode = """
+    code = """
 		#include <julia.h>
 		#include <stdlib.h>
 		#include <stdio.h>
@@ -460,15 +460,18 @@ function emit_cmain(cfile, exename, relocation)
 				return ret;
 		}
 		"""
-				
-		f = open(cfile, "w")
-    write( f, mainCode)
-    close(f)
+		
+		open(file, "w") do f
+			write( f, code)
+		end
 end
 
-function emit_userimgjl(userimgjl, script_file)
-    open(userimgjl, "w") do f
-        write( f, "include(\"$(escape_string(script_file))\")")
+function emit_userimgjl(file, script_file)
+		code = """
+		include("$(escape_string(script_file))")
+		"""
+    open(file, "w") do f
+        write( f, code)
     end
 end
 

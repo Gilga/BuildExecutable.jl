@@ -11,10 +11,6 @@ using BuildExecutable
 build_executable(exename, script, targetdir, "native")
 ```
 
-## Requirements - Before you start build_executable
-go into julia base folder **(julia_dir)/share/julia/base** and rename **sysimg.jl** to **sysimg_backup.jl**
-then copy **sysimg.jl** and **baseimg.j** from **BuildExecutable/src** to julia base folder and now run build_executable
-
 ## Note on packages:
 Even if the script contains using statements, exported functions
 will not be available in main(). Full qualification of names is
