@@ -1,8 +1,8 @@
 #!/usr/bin/env julia
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-# Build a system image binary at sysimg_path.dlext. Allow insertion of a userimg via
-# userimg_path.  If sysimg_path.dlext is currently loaded into memory, don't continue
+# Build a system image binary at build_path.dlext. Allow insertion of a userimg via
+# userimg_path.  If build_path.dlext is currently loaded into memory, don't continue
 # unless force is set to true.  Allow targeting of a CPU architecture via cpu_target.
 function default_sysimg_path(debug=false)
     if is_unix()
@@ -13,9 +13,9 @@ function default_sysimg_path(debug=false)
 end
 
 """
-    build_sysimg(sysimg_path=default_sysimg_path, cpu_target="native", userimg_path=nothing; force=false)
+    build_sysimg(build_path=default_sysimg_path, cpu_target="native", userimg_path=nothing; force=false)
 
-Rebuild the system image. Store it in `sysimg_path`, which defaults to a file named `sys.ji`
+Rebuild the system image. Store it in `build_path`, which defaults to a file named `sys.ji`
 that sits in the same folder as `libjulia.{so,dylib}`, except on Windows where it defaults
 to `JULIA_HOME/../lib/julia/sys.ji`.  Use the cpu instruction set given by `cpu_target`.
 Valid CPU targets are the same as for the `-C` option to `julia`, or the `-march` option to
@@ -24,41 +24,44 @@ current processor. Include the user image file given by `userimg_path`, which sh
 directives such as `using MyPackage` to include that package in the new system image. New
 system image will not replace an older image unless `force` is set to true.
 """
-function build_sysimg(sysimg_path=nothing, cpu_target="native", userimg_path=nothing; force=false, debug=false)
-    if sysimg_path === nothing
-        sysimg_path = default_sysimg_path(debug)
+function build_sysimg(buildfile=nothing, cpu_target="native", userimg_path=nothing; force=false, debug=false)
+    #buildfile = buildfile
+    build_path = dirname(buildfile)
+    
+    if build_path === nothing
+        build_path = default_sysimg_path(debug)
     end
 
-    # Quit out if a sysimg is already loaded and is in the same spot as sysimg_path, unless forcing
-    sysimglib = Libdl.dlopen_e("sys")
-    if sysimglib != C_NULL
-        if !force && Base.samefile(Libdl.dlpath(sysimglib), "$(sysimg_path).$(Libdl.dlext)")
-            info("System image already loaded at $(Libdl.dlpath(sysimglib)), set force=true to override.")
+    # Quit out if a sysimg is already loaded and is in the same spot as build_path, unless forcing
+    lib = Libdl.dlopen_e("sys")
+    if lib != C_NULL
+        if !force && Base.samefile(Libdl.dlpath(lib), "$buildfile.$(Libdl.dlext)")
+            info("System image already loaded at $(Libdl.dlpath(lib)), set force=true to override.")
             return nothing
         end
     end
 
     # Canonicalize userimg_path before we enter the base_dir
-    if userimg_path !== nothing
-        userimg_path = abspath(userimg_path)
-    end
+    if userimg_path !== nothing userimg_path = abspath(userimg_path) end
 
-		coreimg = "coreimg.jl"
-		sysimg = "sysimg.jl"
-		libimg= "userimg_tmp.jl"
-		userimg = "userimg_tmp.jl"
-
+		file_coreimg = "coreimg.jl"
+		file_sysimg = "sysimg.jl"
+		file_userimg = "userimg_tmp.jl"
+#tempname()
     # Enter base and setup some useful paths
-    base_dir = dirname(Base.find_source_file(sysimg))
-    cd(base_dir) do
+    r=Base.find_source_file("$file_sysimg")
+    if r == nothing error("Could not find $file_sysimg") end
+    
+    cd(dirname(Base.find_source_file("sysimg.jl"))) do
         julia = joinpath(JULIA_HOME, debug ? "julia-debug" : "julia")
         cc = find_system_compiler()
-
+        env=compiler_setPaths(cc,build_path)
+        
         # Ensure we have write-permissions to wherever we're trying to write to
         try
-            touch("$sysimg_path.ji")
+            touch("$buildfile.ji")
         catch
-            err_msg =  "Unable to modify $sysimg_path.ji, ensure parent directory exists "
+            err_msg =  "Unable to modify $buildfile.ji, ensure parent directory exists "
             err_msg *= "and is writable; absolute paths work best.)"
             error(err_msg)
         end
@@ -68,58 +71,60 @@ function build_sysimg(sysimg_path=nothing, cpu_target="native", userimg_path=not
             if !isfile(userimg_path)
                 error("$userimg_path is not found, ensure it is an absolute path.")
             end
-            #if isfile(userimg)
-	                #error("$base_dir/$userimg already exists, delete manually to continue.")
+            #if isfile(file_userimg)
+	                #error("$file_userimg already exists, delete manually to continue.")
             #end
-            cp(userimg_path, userimg, remove_destination=true)
+            #cp(userimg_path, file_userimg, remove_destination=true)
         end
 				
         try
             # paths for standard images
-            inference_path = joinpath(dirname(sysimg_path), "inference")
-						baseimg_path = joinpath(dirname(sysimg_path), "sys")
-	
-						build_inference = !isfile(string(inference_path,".ji"))
-						
-						# Start by building inference.{ji,o}
-						if build_inference
-							info("Building inference.o")
-							info("$julia -C $cpu_target --output-ji $inference_path.ji --output-o $inference_path.o $coreimg")
-							run(`$julia -C $cpu_target --output-ji $inference_path.ji --output-o $inference_path.o $coreimg`)
-						end
-						
-						# Bootstrap off of that to create sys.{ji,o}
-						if build_inference || !isfile(string(baseimg_path,".ji"))
-							info("Building sys.o")
-							info("$julia -C $cpu_target --output-ji $baseimg_path.ji --output-o $baseimg_path.o -J $inference_path.ji --startup-file=no $sysimg")
-							run(`$julia -C $cpu_target --output-ji $baseimg_path.ji --output-o $baseimg_path.o -J $inference_path.ji --startup-file=no $sysimg`)
-						end
-	
-						# Bootstrap off of that to create lib.{ji,o}
-						info("Building lib.o")
-						info("$julia -C $cpu_target --output-ji $sysimg_path.ji --output-o $sysimg_path.o -J $inference_path.ji --startup-file=no $libimg")
-						run(`$julia -C $cpu_target --output-ji $sysimg_path.ji --output-o $sysimg_path.o -J $baseimg_path.ji --startup-file=no $libimg`)
-						
+            recompile = false
+            
+            files = [file_coreimg,file_sysimg,"$buildfile.jl"]
+            last = length(files)
+            prepath = nothing
+            i = 0
+            
+            for file in files
+              i += 1
+              name=splitext(file)[1]
+              path=joinpath(build_path, name)
+              
+              if !isfile("$path.ji") || !isfile("$path.o")
+                info("Building $name.o")
+                #cmd has issues with space insertions!!!
+                # cmd1=`"a" `; cmd2=`"b"`; cmd=`$cmd1$cmd2` -> `"a" "b"` won't work!
+                link =prepath != nothing ? `-J "$prepath.ji" --startup-file=no "$file"` : `"$file"`
+                cmd=`$julia -C $cpu_target --output-ji "$path.ji" --output-o "$path.o" $link`
+                #startup = i >= last ? " --startup-file=no " :""
+                info(cmd)
+                run(cmd) #setenv(,env)
+                recompile = true
+              end
+              prepath = path
+            end
+            
             if cc !== nothing
-                link_sysimg(sysimg_path, cc, debug)
+                link_sysimg(buildfile, cc, debug)
             else
-                info("System image successfully built at $sysimg_path.ji.")
+                info("System image successfully built at $buildfile.ji.")
             end
 
-            if !Base.samefile("$(default_sysimg_path(debug)).ji", "$sysimg_path.ji")
-                if Base.isfile("$sysimg_path.$(Libdl.dlext)")
-                    info("To run Julia with this image loaded, run: `julia -J $sysimg_path.$(Libdl.dlext)`.")
+            if !Base.samefile("$(default_sysimg_path(debug)).ji", "$buildfile.ji")
+                if Base.isfile("$buildfile.$(Libdl.dlext)")
+                    info("To run Julia with this image loaded, run: `julia -J $buildfile.$(Libdl.dlext)`.")
                 else
-                    info("To run Julia with this image loaded, run: `julia -J $sysimg_path.ji`.")
+                    info("To run Julia with this image loaded, run: `julia -J $buildfile.ji`.")
                 end
             else
                 info("Julia will automatically load this system image at next startup.")
             end
+        catch(ex)
+            println(STDERR,ex)
         finally
             # Cleanup userimg.jl
-            if userimg_path !== nothing && isfile(userimg)
-                rm(userimg)
-            end
+            #if userimg_path !== nothing && isfile(file_userimg) rm(file_userimg) end
         end
     end
 end
@@ -161,10 +166,7 @@ function find_system_compiler()
 end
 
 # Link sys.o into sys.$(dlext)
-function link_sysimg(sysimg_path=nothing, cc=find_system_compiler(), debug=false)
-    if sysimg_path === nothing
-        sysimg_path = default_sysimg_path(debug)
-    end
+function link_sysimg(buildfile, cc=find_system_compiler(), debug=false)
     julia_libdir = dirname(Libdl.dlpath(debug ? "libjulia-debug" : "libjulia"))
 
     FLAGS = ["-L$julia_libdir"]
@@ -175,19 +177,40 @@ function link_sysimg(sysimg_path=nothing, cc=find_system_compiler(), debug=false
         push!(FLAGS, "-lssp")
     end
 
-    sysimg_file = "$sysimg_path.$(Libdl.dlext)"
-    info("Linking sys.$(Libdl.dlext)")
-    info("$cc $(join(FLAGS, ' ')) -o $sysimg_file $sysimg_path.o")
+    info("Linking $buildfile.$(Libdl.dlext)")
+    info("$cc $(join(FLAGS, ' ')) -o $buildfile.$(Libdl.dlext) $buildfile.o")
     # Windows has difficulties overwriting a file in use so we first link to a temp file
-    if is_windows() && isfile(sysimg_file)
-        if success(pipeline(`$cc $FLAGS -o $sysimg_path.tmp $sysimg_path.o`; stdout=STDOUT, stderr=STDERR))
-            mv(sysimg_file, "$sysimg_file.old"; remove_destination=true)
-            mv("$sysimg_path.tmp", sysimg_file; remove_destination=true)
+    if is_windows() && isfile("$buildfile.$(Libdl.dlext)")
+        if success(pipeline(`$cc $FLAGS -o $buildfile.tmp $buildfile.o`; stdout=STDOUT, stderr=STDERR))
+            mv("$buildfile.$(Libdl.dlext)", "$buildfile.$(Libdl.dlext).old"; remove_destination=true)
+            mv("$buildfile.tmp", "$buildfile.$(Libdl.dlext)"; remove_destination=true)
         end
     else
-        run(`$cc $FLAGS -o $sysimg_file $sysimg_path.o`)
+        run(`$cc $FLAGS -o "$buildfile.$(Libdl.dlext)" "$buildfile.o"`)
     end
-    info("System image successfully built at $sysimg_path.$(Libdl.dlext)")
+    info("System image successfully built at $buildfile.$(Libdl.dlext)")
+end
+
+function compiler_setPaths(gcc,env_path)
+  # set paths
+  binary_path = dirname(gcc)
+  inlcude_path = joinpath(abspath(binary_path,"../"),"include")
+  lib_path = joinpath(abspath(binary_path,"../"),"lib")
+
+  ENV2 = deepcopy(ENV)
+  ENV2["CPATH"] = ""
+  ENV2["LIBRARY_PATH"] = ""
+
+  ENV2["PATH"] *= ";" * env_path
+  ENV2["PATH"] *= ";" * binary_path
+
+  ENV2["CPATH"] *= ";" * inlcude_path
+
+  ENV2["LIBRARY_PATH"] *= ";" * env_path
+  ENV2["LIBRARY_PATH"] *= ";" * binary_path
+  ENV2["LIBRARY_PATH"] *= ";" * lib_path
+  
+  ENV2
 end
 
 # When running this file as a script, try to do so with default values.  If arguments are passed
@@ -197,8 +220,8 @@ end
 # system image and instead only need `build_sysimg`'s docstring to be available.
 if !isdefined(Main, :GenStdLib) && !isinteractive()
     if length(ARGS) > 5 || ("--help" in ARGS || "-h" in ARGS)
-        println("Usage: build_sysimg.jl <sysimg_path> <cpu_target> <usrimg_path.jl> [--force] [--debug] [--help]")
-        println("   <sysimg_path>    is an absolute, extensionless path to store the system image at")
+        println("Usage: build_sysimg.jl <build_path> <cpu_target> <usrimg_path.jl> [--force] [--debug] [--help]")
+        println("   <build_path>    is an absolute, extensionless path to store the system image at")
         println("   <cpu_target>     is an LLVM cpu target to build the system image against")
         println("   <usrimg_path.jl> is the path to a user image to be baked into the system image")
         println("   --debug          Using julia-debug instead of julia to build the system image")

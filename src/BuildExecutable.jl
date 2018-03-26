@@ -81,7 +81,6 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
     end
 
     tmpdir = mktempdir()
-    userimgjl = joinpath(tmpdir, "userimg_tmp.jl")
     script_file = abspath(script_file)
 
     if targetdir != nothing
@@ -95,9 +94,14 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
 
     exe_file = Executable(exename, targetdir, debug)
     sys = SysFile(exe_file)
+
+    file_ji = "$(sys.buildfile).ji"
+    file_o = "$(sys.buildfile).o"
+    file_dll = "$(sys.buildfile).$(Libdl.dlext)"
+    userimgjl = joinpath(tmpdir, "$(sys.buildfile).jl")
 		
     if !force
-        for f in [userimgjl, "$(sys.buildfile).$(Libdl.dlext)", "$(sys.buildfile).ji", exe_file.buildfile] #cfile, 
+        for f in [userimgjl, file_dll, file_ji, exe_file.buildfile] #cfile, 
             if isfile(f)
                 println("ERROR: File '$(f)' already exists. Delete it or use --force.")
                 return 1
@@ -108,6 +112,11 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
             println("ERROR: targetdir is not an empty diectory. Delete all contained files or use --force.")
             return 1
         end
+    else
+      #remove build libs
+      #for f in [userimgjl, file_dll, file_ji, file_o, exe_file.buildfile]
+      #  if isfile(f) rm(f) end
+      #end
     end
 
     gcc = find_system_gcc()
@@ -230,7 +239,7 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
 		# main
 		cfile = joinpath(exe_file.buildpath, "main.c")
 					
-		if !isfile(cfile) || !isfile(exe_file.buildfile)
+		#if !isfile(cfile) || !isfile(exe_file.buildfile)
 			println("[ Build Executable ]")
 			if !isfile(cfile)
 				println("create $(cfile)")
@@ -241,7 +250,7 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
 			cmd = setenv(`$gcc -g $win_arg $(incs) $(cfile) -o $(exe_file.buildfile) $(rcbuilfile) -Wl,-rpath,$(exe_file.buildpath) -Wl,-rpath,$(exe_file.buildpath*"/julia") -L$(exe_file.buildpath) $(exe_file.libjulia) -l$(exename)`, ENV2)
 			run(cmd)
 			println()
-		end
+		#end
 
 		println("running: rm -rf $(tmpdir)") # $(sys.buildfile).o $(sys.inference).o $(sys.inference).ji")
 		map(f-> rm(f, recursive=true), [tmpdir]) #, sys.buildfile*".o", sys.inference*".o", sys.inference*".ji"])
@@ -410,6 +419,8 @@ function emit_cmain(file, exename, relocation)
 				char * arg;
 				char *token;
 				char *split=":";
+        
+        printf("Start App...\\n");
 				
 				for (int i = 1; i < argc; i++) {
 						arg = argv[i];
@@ -426,18 +437,24 @@ function emit_cmain(file, exename, relocation)
 
 				assert(atexit(&failed_warning) == 0);
 		
-				jl_init_with_image(NULL, sysji_env == NULL ? sysji : sysji_env);
+        printf("jl_init_with_image %s\\n", sysji);
+				jl_init_with_image(NULL, sysji); //sysji_env == NULL ? sysji : sysji_env
+        printf("---------------\\n");
 
 				// set Base.ARGS, not Core.ARGS
 				if (jl_base_module != NULL) {
+            printf("jl_get_global jl_base_module\\n");
 						jl_array_t *args = (jl_array_t*)jl_get_global(jl_base_module, jl_symbol("ARGS"));
 						if (args == NULL) {
 								args = $arr(0);
+                printf("jl_set_const\\n");
 								jl_set_const(jl_base_module, jl_symbol("ARGS"), (jl_value_t*)args);
 						}
 						assert(jl_array_len(args) == 0);
+            printf("jl_array_grow_end\\n");
 						jl_array_grow_end(args, argc - 1);
 						int i;
+            printf("jl_cstr_to_string\\n");
 						for (i=1; i < argc; i++) {
 								jl_value_t *s = (jl_value_t*)jl_cstr_to_string(argv[i]);
 								jl_set_typeof(s,$str);
@@ -446,6 +463,7 @@ function emit_cmain(file, exename, relocation)
 				}
 				
 				// call main
+        printf("Call main\\n");
 				jl_eval_string(mainfunc);
 
 				int ret = 0;
