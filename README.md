@@ -1,6 +1,8 @@
 # BuildExecutable
 [![Build Status](https://travis-ci.org/Gilga/BuildExecutable.jl.svg?branch=master)](https://travis-ci.org/Gilga/BuildExecutable.jl)
-[![Build status](https://ci.appveyor.com/api/projects/status/r9659tnllk7a8o83?svg=true)](https://ci.appveyor.com/project/Gilga/buildexecutable-jl)
+[![Build status](https://ci.appveyor.com/api/projects/status/eoyxl4doixob24xc?svg=true)](https://ci.appveyor.com/project/Gilga/buildexecutable-jl)
+
+Forked from [![Original](https://github.com/dhoegh/BuildExecutable.jl)](here).
 
 Builds an executable that doesn't require any julia source code.
 The user needs to provide a julia script that contains a function main(),
