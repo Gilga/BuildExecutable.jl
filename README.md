@@ -2,7 +2,7 @@
 [![Build Status](https://travis-ci.org/Gilga/BuildExecutable.jl.svg?branch=master)](https://travis-ci.org/Gilga/BuildExecutable.jl)
 [![Build status](https://ci.appveyor.com/api/projects/status/eoyxl4doixob24xc?svg=true)](https://ci.appveyor.com/project/Gilga/buildexecutable-jl)
 
-Forked from [![Original](https://github.com/dhoegh/BuildExecutable.jl)](here).
+Forked from [here](https://github.com/dhoegh/BuildExecutable.jl).
 
 Builds an executable that doesn't require any julia source code.
 The user needs to provide a julia script that contains a function main(),
