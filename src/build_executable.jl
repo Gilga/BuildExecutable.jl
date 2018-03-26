@@ -3,7 +3,9 @@ include("./BuildExecutable.jl")
 using BuildExecutable
 
 if !isinteractive()
-    if length(ARGS) < 2 || ("--help" in ARGS || "-h" in ARGS)
+    BARGS = ARGS
+    
+    if length(BARGS) < 2 || ("--help" in BARGS || "-h" in BARGS)
         println("Usage: build_executable.jl <exename> <script_file> [targetdir] <cpu_target> [--help]")
         println("   <exename>        is the filename of the resulting executable and the resulting sysimg")
         println("   <script_file>    is the path to a jl file containing a main() function.")
@@ -19,9 +21,17 @@ if !isinteractive()
         return 0
     end
 
-    debug_flag = "--debug" in ARGS
-    filter!(x -> x != "--debug", ARGS)
-    force_flag = "--force" in ARGS
-    filter!(x -> x != "--force", ARGS)
-    BuildExecutable.build_executable(ARGS..., force=force_flag, debug=debug_flag)
+    debug_flag = "--debug" in BARGS
+    BARGS = filter!(x -> x != "--debug", BARGS)
+    force_flag = "--force" in BARGS
+    BARGS = filter!(x -> x != "--force", BARGS)
+    BARGS = (x->replace(x,"\\","/")).(BARGS)
+    
+    exename=BARGS[1]
+    script_file=BARGS[2]
+    targetdir=BARGS[3]
+    
+    println("Args: ",BARGS)
+    
+    BuildExecutable.build_executable(exename, script_file, targetdir, force=force_flag, debug=debug_flag)
 end

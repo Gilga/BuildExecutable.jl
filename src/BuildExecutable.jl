@@ -22,7 +22,7 @@ type Executable
     libjulia
 		debug
 		
-		function Executable(exename, targetdir, debug=false)
+		function Executable(exename, targetdir=nothing, debug=false)
 				if debug
 						exename = exename * "-debug"
 				end
@@ -76,7 +76,7 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
     end
 
     if !isfile(script_file)
-        println("ERROR: $(script_file) not found.")
+        println("ERROR: $script_file not found.")
         return 1
     end
 
@@ -86,8 +86,9 @@ function build_executable(exename, script_file, targetdir=nothing, cpu_target="n
 
     if targetdir != nothing
         targetdir = abspath(targetdir)
+        if !isdir(targetdir) mkdir(targetdir) end
         if !isdir(targetdir)
-            println("ERROR: targetdir is not a directory.")
+            println("ERROR: $targetdir not found.")
             return 1
         end
     end
