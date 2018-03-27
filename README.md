@@ -4,6 +4,12 @@
 
 Forked from [here](https://github.com/dhoegh/BuildExecutable.jl).
 
+# Status
+* ~~Works with 0.5.1~~ (deprecated, not tested anymore!)
+* ~~Works with 0.6.0~~ (jl_init_with_image breaks with no error!)
+* Works with 0.6.1
+
+# Info
 Builds an executable that doesn't require any julia source code.
 The user needs to provide a julia script that contains a function main(),
 taking no argument, which will be run when executing the
