@@ -4,11 +4,6 @@
 
 Forked from [here](https://github.com/dhoegh/BuildExecutable.jl).
 
-# Status
-* ~~Works with 0.5.1~~ (deprecated, not tested anymore!)
-* ~~Works with 0.6.0~~ (jl_init_with_image breaks with no error!)
-* Works with 0.6.1
-
 # Info
 Builds an executable that doesn't require any julia source code.
 The user needs to provide a julia script that contains a function main(),
@@ -18,6 +13,28 @@ produced executable. An executable can be produced by using the `build_executabl
 using BuildExecutable
 build_executable(exename, script, targetdir, "native")
 ```
+
+# Status
+* ~~Works with 0.5.1~~ (deprecated, not tested anymore!)
+* ~~Works with 0.6.0~~ (jl_init_with_image breaks with no error!)
+* Works with 0.6.1
+
+# Requirements (Packages)
+* WinRPM
+
+# Tested on
+## Windows
+* Operating System: Windows 10 Home 64-bit (10.0, Build 16299) (16299.rs3_release.170928-1534)
+* Processor: Intel(R) Core(TM) i7-4510U CPU @ 2.00GHz (4 CPUs), ~2.0GHz
+* Memory: 8192MB RAM
+* Graphics Card 1: Intel(R) HD Graphics Family
+* Graphics Card 2: NVIDIA GeForce 840M
+
+## Linux
+* not tested
+## Mac
+* not tested
+
 
 ## Note on packages:
 Even if the script contains using statements, exported functions
