@@ -85,6 +85,7 @@ module App
   include("myOtherModule")
   
   using Images
+  using ImageMagick # add all dependencies here or run (of executable) will fail
   using myOtherModule
   ...
   
