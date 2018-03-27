@@ -55,16 +55,23 @@ execution of main() will fail probably due to missing modules (even so i defined
 
 **in non module context** ("using 'modulename'" has to be called in each function!)
 ```julia
-function test()
+__precompile__()
+
+function main()
   using Images
+  using ImageMagick # add all dependencies here or run (of executable) will fail
+  
   Images.load(...)
 end
 ```
 
 **in module context**
 ```julia
+__precompile__()
+
 module Test
   using Images
+  using ImageMagick # add all dependencies here or run (of executable) will fail
   
   function load()
     Images.load(...)
@@ -81,6 +88,8 @@ All necessary files and modules are included there. The main function calls App.
 
 Example:
 ```julia
+__precompile__()
+
 module App
   include("myOtherModule")
   
