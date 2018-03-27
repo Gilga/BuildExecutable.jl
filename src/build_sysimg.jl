@@ -95,8 +95,9 @@ function build_sysimg(buildfile=nothing, cpu_target="native", userimg_path=nothi
                 info("Building $name.o")
                 #cmd has issues with space insertions!!!
                 # cmd1=`"a" `; cmd2=`"b"`; cmd=`$cmd1$cmd2` -> `"a" "b"` won't work!
-                link =prepath != nothing ? `-J "$prepath.ji" --startup-file=no "$file"` : `"$file"`
-                cmd=`$julia -C $cpu_target --output-ji "$path.ji" --output-o "$path.o" $link`
+                if prepath != nothing cmd=`$julia -C $cpu_target --output-ji "$path.ji" --output-o "$path.o" -J "$prepath.ji" --startup-file=no "$file"`
+                else cmd=`$julia -C $cpu_target --output-ji "$path.ji" --output-o "$path.o" "$file"`
+                end
                 #startup = i >= last ? " --startup-file=no " :""
                 info(cmd)
                 run(cmd) #setenv(,env)
