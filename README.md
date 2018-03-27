@@ -30,3 +30,54 @@ If packages with binary dependencies is used the produced executable will not fu
 
 ## Note on portability
 The executable produced by `build_executable` is known to be portable across Windows computers, and OS X, but not on Linux. To increase the portablity use an older `cpu_target` target as `"core2"` instead of `"native"`. 
+
+# Compiling
+using module namespace in non module context won't work so easily...
+
+execution of main() will fail probably due to missing modules (even so i defined it). why? look:
+
+**in non module context** ("using 'modulename'" has to be called in each function!)
+```julia
+function test()
+  using Images
+  Images.load(...)
+end
+```
+
+**in module context**
+```julia
+module Test
+  using Images
+  
+  function load()
+    Images.load(...)
+  end  
+end
+```
+
+I guess the reason is that: app execution != compiler run. main() function will be called by a executable file (.exe) after code was compiled.
+
+So question is if main() function can see all necessary modules i want to use.
+
+I did an approach of defining an module 'App' around a start() function which is the programs run point (instead of using main).
+All necessary files and modules are included there. The main function calls App.start(). This works!
+
+Example:
+```julia
+module App
+  include("myOtherModule")
+  
+  using Images
+  using myOtherModule
+  ...
+  
+  function start() # app run point
+    Images.load(...)
+    myOtherModule.call()
+  end
+end
+
+function main() # entry point
+  App.start() # app run point
+end
+```
