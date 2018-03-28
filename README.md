@@ -16,8 +16,9 @@ build_executable(exename, script, targetdir, "native")
 
 # Status
 * ~~Works with 0.5.1~~ (deprecated, not tested anymore!)
-* ~~Works with 0.6.0~~ (jl_init_with_image breaks with no error!)
+* ~~Works with 0.6.0~~ (Compiling works but execution will fail, jl_init_with_image breaks with no error!)
 * Works with 0.6.1
+* Works with 0.6.2
 
 # Requirements (Packages)
 * WinRPM
