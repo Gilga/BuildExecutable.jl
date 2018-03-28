@@ -23,7 +23,7 @@ build_executable(exename, script, targetdir, "native")
 # Requirements (Packages)
 * WinRPM
 
-# Tested on
+# Tested
 ## Note on portability
 The executable produced by `build_executable` is known to be portable across Windows computers, and OS X, but not on Linux. To increase the portablity use an older `cpu_target` target as `"core2"` instead of `"native"`. 
 
@@ -52,12 +52,10 @@ If packages with binary dependencies is used the produced executable will not fu
 
 ### Example
 So using module namespace in non module context won't work so easily.
-
 Execution of main() will fail probably due to missing modules (even so it is defined by using statements).
-
 So question is if main() function can see all necessary modules which were included...
 
-**in non module context** ("using 'modulename'" has to be called in each function!)
+**in non module context** (using statements has to be defined in each function!)
 ```julia
 __precompile__()
 
